@@ -1,10 +1,13 @@
+from __future__ import annotations
 from pathlib import Path
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
+from sklearn.impute import SimpleImputer
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.model_selection import train_test_split
-from sklearn.impute import SimpleImputer
 from sklearn.pipeline import Pipeline
 from xgboost import XGBRegressor
 
@@ -18,100 +21,140 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 
 # Load data
-print("Loading dataset...")
-df = pd.read_csv(DATA_PATH)
-print(f"Dataset loaded: {df.shape[0]} rows")
+def load_data(path: Path) -> pd.DataFrame:
+    """Load the cleaned dataset."""
+    if not path.exists():
+        raise FileNotFoundError(f"Dataset not found: {path}")
+
+    df = pd.read_csv(path)
+
+    if "arr_delay" not in df.columns:
+        raise ValueError("Target column 'arr_delay' not found.")
+
+    return df
 
 
-# Features
-print("Preparing features...")
+# Prepare features
+def build_feature_matrix(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:
+    """Build numeric feature matrix for XGBoost."""
+    feature_cols = [
+        "dep_delay",
+        "distance",
+        "great_circle_km",
+        "origin_lat",
+        "origin_lon",
+        "dest_lat",
+        "dest_lon",
+        "TMAX",
+        "PRCP",
+        "dep_hour",
+        "is_weekend",
+        "month",
+        "day",
+    ]
 
-feature_cols = [
-    "dep_delay",
-    "distance",
-    "great_circle_km",
-    "origin_lat",
-    "origin_lon",
-    "dest_lat",
-    "dest_lon",
-    "TMAX",
-    "PRCP",
-    "dep_hour",
-    "is_weekend",
-    "month",
-    "day",
-]
+    missing_cols = [col for col in feature_cols if col not in df.columns]
+    if missing_cols:
+        raise ValueError(f"Missing required feature columns: {missing_cols}")
 
-X = df[feature_cols].copy()
-y = df["arr_delay"].copy()
+    X = df[feature_cols].copy()
+    y = df["arr_delay"].copy()
 
-
-# Split
-print("Splitting data...")
-X_train, X_test, y_train, y_test = train_test_split(
-    X, y, test_size=0.2, random_state=42
-)
-
-
-# Model
-print("\nTraining XGBoost... (this may take ~10-30s)")
-
-xgb_model = Pipeline([
-    ("imputer", SimpleImputer(strategy="median")),
-    ("model", XGBRegressor(
-        n_estimators=200,
-        learning_rate=0.1,
-        max_depth=6,
-        subsample=0.8,
-        colsample_bytree=0.8,
-        random_state=42,
-        n_jobs=-1,
-        verbosity=1
-    ))
-])
-
-xgb_model.fit(X_train, y_train)
-
-print("XGBoost training complete!")
+    return X, y
 
 
-# Predict
-y_pred_xgb = xgb_model.predict(X_test)
-
-mae = mean_absolute_error(y_test, y_pred_xgb)
-rmse = np.sqrt(mean_squared_error(y_test, y_pred_xgb))
-r2 = r2_score(y_test, y_pred_xgb)
-
-
-# Results
-print("\n===== XGBOOST RESULTS =====")
-print(f"MAE  : {mae:.4f}")
-print(f"RMSE : {rmse:.4f}")
-print(f"R^2  : {r2:.4f}")
-
-
-# Save
-text = f"""XGBoost Metrics
+# Save outputs
+def save_metrics(output_dir: Path, mae: float, rmse: float, r2: float) -> None:
+    """Save model metrics to a text file."""
+    text = f"""XGBoost Metrics
 
 MAE  : {mae:.4f}
 RMSE : {rmse:.4f}
 R^2  : {r2:.4f}
 """
-(OUTPUT_DIR / "xgb_metrics.txt").write_text(text)
+    (output_dir / "xgb_metrics.txt").write_text(text, encoding="utf-8")
 
-# plot
-plt.figure(figsize=(7, 7))
-plt.scatter(y_test, y_pred_xgb, alpha=0.25)
 
-min_val = float(min(y_test.min(), y_pred_xgb.min()))
-max_val = float(max(y_test.max(), y_pred_xgb.max()))
-plt.plot([min_val, max_val], [min_val, max_val])
+def save_plot(output_dir: Path, y_test: pd.Series, y_pred: np.ndarray) -> None:
+    """Save actual vs predicted scatter plot."""
+    plt.figure(figsize=(7,7))
+    plt.scatter(y_test, y_pred, alpha=0.25)
 
-plt.xlabel("Actual")
-plt.ylabel("Predicted (XGB)")
-plt.title("XGBoost: Actual vs Predicted")
+    min_val = float(min(y_test.min(), y_pred.min()))
+    max_val = float(max(y_test.max(), y_pred.max()))
+    plt.plot([min_val, max_val], [min_val, max_val])
 
-plt.savefig(OUTPUT_DIR / "xgb_actual_vs_predicted.png", dpi=200)
-plt.close()
+    plt.xlabel("Actual Arrival Delay")
+    plt.ylabel("Predicted Arrival Delay")
+    plt.title("XGBoost: Actual vs Predicted")
+    plt.tight_layout()
+    plt.savefig(output_dir / "xgb_actual_vs_predicted.png", dpi=200, bbox_inches="tight")
+    plt.close()
 
-print("Saved results!")
+
+# Main
+def main() -> None:
+    print("Loading dataset...")
+    df = load_data(DATA_PATH)
+    print(f"Dataset loaded: {df.shape[0]:,} rows x {df.shape[1]} columns")
+
+    print("Preparing features...")
+    X, y = build_feature_matrix(df)
+    print(f"Using {X.shape[1]} numeric features")
+
+    print("Splitting train/test...")
+    X_train, X_test, y_train, y_test = train_test_split(
+        X,
+        y,
+        test_size=0.2,
+        random_state=42,
+    )
+    print(f"Train size: {len(X_train):,}")
+    print(f"Test size : {len(X_test):,}")
+
+    print("Training XGBoost... (this may take a moment)")
+    model = Pipeline(
+        steps=[
+            ("imputer", SimpleImputer(strategy="median")),
+            (
+                "regressor",
+                XGBRegressor(
+                    n_estimators=200,
+                    learning_rate=0.1,
+                    max_depth=6,
+                    subsample=0.8,
+                    colsample_bytree=0.8,
+                    random_state=42,
+                    n_jobs=-1,
+                    verbosity=1,
+                ),
+            ),
+        ]
+    )
+
+    model.fit(X_train, y_train)
+    print("Training complete.")
+
+    print("Predicting on test set...")
+    y_pred = model.predict(X_test)
+
+    mae = mean_absolute_error(y_test, y_pred)
+    rmse = np.sqrt(mean_squared_error(y_test, y_pred))
+    r2 = r2_score(y_test, y_pred)
+
+    print("\n===== XGBOOST RESULTS =====")
+    print(f"Rows used: {len(df):,}")
+    print(f"Features: {X.shape[1]}")
+    print(f"MAE  : {mae:.4f}")
+    print(f"RMSE : {rmse:.4f}")
+    print(f"R^2  : {r2:.4f}")
+
+    save_metrics(OUTPUT_DIR, mae, rmse, r2)
+    save_plot(OUTPUT_DIR, y_test, y_pred)
+
+    print(f"Saved metrics to: {OUTPUT_DIR / 'xgb_metrics.txt'}")
+    print(f"Saved plot to: {OUTPUT_DIR / 'xgb_actual_vs_predicted.png'}")
+
+
+if __name__ == "__main__":
+    main()
