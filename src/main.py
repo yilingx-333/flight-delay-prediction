@@ -18,7 +18,6 @@ from process import (
     process_weather_data,
 )
 
-# import modules
 from analyze import main as run_analysis
 from baseline import main as run_baseline
 from random_forest import main as run_rf

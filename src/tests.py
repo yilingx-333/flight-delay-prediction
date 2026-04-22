@@ -1,14 +1,12 @@
+# AI generated:
+
 from __future__ import annotations
-
 import os
-import tempfile
 import unittest
-from pathlib import Path
 from unittest.mock import patch
-
 import numpy as np
 import pandas as pd
-
+from src.config import FINAL_DATASET_PATH
 from src.load import load_api_key
 from src.process import build_final_dataset, haversine
 
@@ -19,7 +17,6 @@ class TestProjectUtilities(unittest.TestCase):
         with patch.dict(os.environ, {"NOAA_API_KEY": "test_key_123"}, clear=False):
             key = load_api_key()
             self.assertEqual(key, "test_key_123")
-
 
     def test_haversine_zero_distance(self) -> None:
         """Distance between identical coordinates should be zero."""
@@ -78,11 +75,10 @@ class TestProjectUtilities(unittest.TestCase):
         If the final dataset exists, basic sanity checks should pass.
         This test does not fail if the file is absent, so it is safe during development.
         """
-        dataset_path = Path("results/final_dataset.csv")
-        if not dataset_path.exists():
-            self.skipTest("results/final_dataset.csv not found")
+        if not FINAL_DATASET_PATH.exists():
+            self.skipTest(f"{FINAL_DATASET_PATH} not found")
 
-        df = pd.read_csv(dataset_path)
+        df = pd.read_csv(FINAL_DATASET_PATH)
 
         self.assertGreater(len(df), 0)
         self.assertIn("arr_delay", df.columns)

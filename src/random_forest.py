@@ -1,8 +1,13 @@
+# AI generated:
 from __future__ import annotations
+
 from pathlib import Path
+
 import matplotlib
 matplotlib.use("Agg")
+
 import matplotlib.pyplot as plt
+import joblib
 import numpy as np
 import pandas as pd
 from sklearn.ensemble import RandomForestRegressor
@@ -11,13 +16,21 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 
+# Support both direct script execution and imports
+try:
+    from config import FINAL_DATASET_PATH, RESULTS_DIR
+except ImportError:
+    from src.config import FINAL_DATASET_PATH, RESULTS_DIR
+
 
 # Paths
 BASE_DIR = Path(__file__).resolve().parent.parent
-RESULTS_DIR = BASE_DIR / "results"
-DATA_PATH = RESULTS_DIR / "final_dataset.csv"
-OUTPUT_DIR = RESULTS_DIR / "model_outputs"
-OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+MODEL_OUTPUT_DIR = RESULTS_DIR / "model_outputs"
+MODEL_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+RF_METRICS_PATH = MODEL_OUTPUT_DIR / "rf_metrics.txt"
+RF_PLOT_PATH = MODEL_OUTPUT_DIR / "rf_actual_vs_predicted.png"
+RF_MODEL_PATH = MODEL_OUTPUT_DIR / "rf_model.joblib"
 
 
 # Load data
@@ -36,7 +49,7 @@ def load_data(path: Path) -> pd.DataFrame:
 
 # Prepare features
 def build_feature_matrix(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:
-
+    """Build numeric feature matrix for Random Forest."""
     feature_cols = [
         "dep_delay",
         "distance",
@@ -64,7 +77,7 @@ def build_feature_matrix(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:
 
 
 # Save outputs
-def save_metrics(output_dir: Path, mae: float, rmse: float, r2: float) -> None:
+def save_metrics(mae: float, rmse: float, r2: float) -> None:
     """Save model metrics to a text file."""
     text = f"""Random Forest Metrics
 
@@ -72,10 +85,10 @@ MAE  : {mae:.4f}
 RMSE : {rmse:.4f}
 R^2  : {r2:.4f}
 """
-    (output_dir / "rf_metrics.txt").write_text(text, encoding="utf-8")
+    RF_METRICS_PATH.write_text(text, encoding="utf-8")
 
 
-def save_plot(output_dir: Path, y_test: pd.Series, y_pred: np.ndarray) -> None:
+def save_plot(y_test: pd.Series, y_pred: np.ndarray) -> None:
     """Save actual vs predicted scatter plot."""
     plt.figure(figsize=(7, 7))
     plt.scatter(y_test, y_pred, alpha=0.25)
@@ -88,14 +101,20 @@ def save_plot(output_dir: Path, y_test: pd.Series, y_pred: np.ndarray) -> None:
     plt.ylabel("Predicted Arrival Delay")
     plt.title("Random Forest: Actual vs Predicted")
     plt.tight_layout()
-    plt.savefig(output_dir / "rf_actual_vs_predicted.png", dpi=200, bbox_inches="tight")
+    plt.savefig(RF_PLOT_PATH, dpi=200, bbox_inches="tight")
     plt.close()
+
+
+def save_model(model: Pipeline) -> None:
+    """Save trained model to disk."""
+    joblib.dump(model, RF_MODEL_PATH)
+    print(f"Saved trained model to: {RF_MODEL_PATH}")
 
 
 # Main
 def main() -> None:
     print("Loading dataset...")
-    df = load_data(DATA_PATH)
+    df = load_data(FINAL_DATASET_PATH)
     print(f"Dataset loaded: {df.shape[0]:,} rows x {df.shape[1]} columns")
 
     print("Preparing features...")
@@ -146,11 +165,12 @@ def main() -> None:
     print(f"RMSE : {rmse:.4f}")
     print(f"R^2  : {r2:.4f}")
 
-    save_metrics(OUTPUT_DIR, mae, rmse, r2)
-    save_plot(OUTPUT_DIR, y_test, y_pred)
+    save_metrics(mae, rmse, r2)
+    save_plot(y_test, y_pred)
+    save_model(model)
 
-    print(f"Saved metrics to: {OUTPUT_DIR / 'rf_metrics.txt'}")
-    print(f"Saved plot to: {OUTPUT_DIR / 'rf_actual_vs_predicted.png'}")
+    print(f"Saved metrics to: {RF_METRICS_PATH}")
+    print(f"Saved plot to: {RF_PLOT_PATH}")
 
 
 if __name__ == "__main__":

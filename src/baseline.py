@@ -1,8 +1,11 @@
+# AI generated:
 from __future__ import annotations
+
 from pathlib import Path
-import argparse
+
 import matplotlib
 matplotlib.use("Agg")
+
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -14,31 +17,20 @@ from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
+# Support both direct script execution and imports
+try:
+    from config import FINAL_DATASET_PATH, RESULTS_DIR
+except ImportError:
+    from src.config import FINAL_DATASET_PATH, RESULTS_DIR
+
 
 # Paths
 BASE_DIR = Path(__file__).resolve().parent.parent
-RESULTS_DIR = BASE_DIR / "results"
-DEFAULT_INPUT_PATH = RESULTS_DIR / "final_dataset.csv"
-DEFAULT_OUTPUT_DIR = RESULTS_DIR / "model_outputs"
+MODEL_OUTPUT_DIR = RESULTS_DIR / "model_outputs"
+MODEL_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-
-# Argument parsing
-def parse_args() -> argparse.Namespace:
-    """Parse command-line arguments."""
-    parser = argparse.ArgumentParser(description="Train a baseline flight delay model.")
-    parser.add_argument(
-        "--input",
-        type=str,
-        default=str(DEFAULT_INPUT_PATH),
-        help="Path to the cleaned dataset CSV file.",
-    )
-    parser.add_argument(
-        "--output-dir",
-        type=str,
-        default=str(DEFAULT_OUTPUT_DIR),
-        help="Directory to save model outputs.",
-    )
-    return parser.parse_args()
+BASELINE_METRICS_PATH = MODEL_OUTPUT_DIR / "baseline_metrics.txt"
+BASELINE_PLOT_PATH = MODEL_OUTPUT_DIR / "baseline_actual_vs_predicted.png"
 
 
 # Data loading
@@ -54,8 +46,10 @@ def load_data(path: Path) -> pd.DataFrame:
 
     return df
 
+
 # Feature preparation
 def build_feature_sets(df: pd.DataFrame):
+    """Split target and features, and identify numeric/categorical columns."""
     y = df["arr_delay"].copy()
     X = df.drop(columns=["arr_delay"]).copy()
 
@@ -64,7 +58,6 @@ def build_feature_sets(df: pd.DataFrame):
         if col in X.columns and X[col].nunique(dropna=False) <= 1:
             X = X.drop(columns=[col])
 
-    # Separate feature types
     numeric_cols = X.select_dtypes(include=["number", "bool"]).columns.tolist()
     categorical_cols = X.select_dtypes(exclude=["number", "bool"]).columns.tolist()
 
@@ -98,25 +91,25 @@ def make_preprocessor(numeric_cols, categorical_cols) -> ColumnTransformer:
     return preprocessor
 
 
-# Output
-def save_metrics(output_dir: Path, metrics: dict[str, float]) -> None:
+# Output helpers
+def save_metrics(mae: float, rmse: float, r2: float) -> None:
     """Save evaluation metrics to a text file."""
     lines = [
         "Baseline Model Metrics",
         "=" * 22,
-        f"MAE : {metrics['mae']:.4f}",
-        f"RMSE: {metrics['rmse']:.4f}",
-        f"R^2 : {metrics['r2']:.4f}",
+        f"MAE : {mae:.4f}",
+        f"RMSE: {rmse:.4f}",
+        f"R^2 : {r2:.4f}",
         "",
         "Interpretation:",
         "- MAE is the average absolute prediction error in minutes.",
         "- RMSE penalizes larger errors more heavily.",
         "- R^2 measures how much variance is explained by the model.",
     ]
-    (output_dir / "baseline_metrics.txt").write_text("\n".join(lines), encoding="utf-8")
+    BASELINE_METRICS_PATH.write_text("\n".join(lines), encoding="utf-8")
 
 
-def plot_actual_vs_predicted(output_dir: Path, y_test: pd.Series, y_pred: np.ndarray) -> None:
+def plot_actual_vs_predicted(y_test: pd.Series, y_pred: np.ndarray) -> None:
     """Save a scatter plot of actual vs predicted values."""
     plt.figure(figsize=(7, 7))
     plt.scatter(y_test, y_pred, alpha=0.25)
@@ -130,29 +123,29 @@ def plot_actual_vs_predicted(output_dir: Path, y_test: pd.Series, y_pred: np.nda
     plt.title("Baseline Actual vs Predicted Arrival Delay")
     plt.tight_layout()
 
-    plt.savefig(output_dir / "baseline_actual_vs_predicted.png", dpi=200, bbox_inches="tight")
+    plt.savefig(BASELINE_PLOT_PATH, dpi=200, bbox_inches="tight")
     plt.close()
 
 
 # Main training routine
 def main() -> None:
-    args = parse_args()
+    print("Loading dataset...")
+    df = load_data(FINAL_DATASET_PATH).dropna(subset=["arr_delay"]).copy()
+    print(f"Dataset loaded: {df.shape[0]:,} rows x {df.shape[1]} columns")
 
-    input_path = Path(args.input)
-    output_dir = Path(args.output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    df = load_data(input_path).dropna(subset=["arr_delay"]).copy()
-
+    print("Preparing features...")
     X, y, numeric_cols, categorical_cols = build_feature_sets(df)
+    print(f"Using {X.shape[1]} features")
 
-    # Train/test split
+    print("Splitting train/test...")
     X_train, X_test, y_train, y_test = train_test_split(
         X,
         y,
         test_size=0.2,
         random_state=42,
     )
+    print(f"Train size: {len(X_train):,}")
+    print(f"Test size : {len(X_test):,}")
 
     preprocessor = make_preprocessor(numeric_cols, categorical_cols)
 
@@ -163,30 +156,29 @@ def main() -> None:
         ]
     )
 
+    print("Training baseline model...")
     model.fit(X_train, y_train)
     y_pred = model.predict(X_test)
+    print("Training complete.")
 
     # Evaluation
     mae = mean_absolute_error(y_test, y_pred)
     rmse = np.sqrt(mean_squared_error(y_test, y_pred))
     r2 = r2_score(y_test, y_pred)
 
-    # Console output
-    print("===== BASELINE MODEL RESULTS =====")
+    print("\n===== BASELINE MODEL RESULTS =====")
     print(f"Rows used: {len(df):,}")
     print(f"Features: {X.shape[1]}")
-    print(f"Train size: {len(X_train):,}")
-    print(f"Test size : {len(X_test):,}")
     print(f"MAE  : {mae:.4f}")
     print(f"RMSE : {rmse:.4f}")
     print(f"R^2  : {r2:.4f}")
 
     # Save outputs
-    save_metrics(output_dir, {"mae": mae, "rmse": rmse, "r2": r2})
-    plot_actual_vs_predicted(output_dir, y_test, y_pred)
+    save_metrics(mae, rmse, r2)
+    plot_actual_vs_predicted(y_test, y_pred)
 
-    print(f"Saved metrics to: {output_dir / 'baseline_metrics.txt'}")
-    print(f"Saved plot to: {output_dir / 'baseline_actual_vs_predicted.png'}")
+    print(f"Saved metrics to: {BASELINE_METRICS_PATH}")
+    print(f"Saved plot to: {BASELINE_PLOT_PATH}")
 
 
 if __name__ == "__main__":

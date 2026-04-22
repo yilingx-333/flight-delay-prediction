@@ -1,8 +1,14 @@
+# AI generated:
+
 from __future__ import annotations
+
 from pathlib import Path
+
 import matplotlib
 matplotlib.use("Agg")
+
 import matplotlib.pyplot as plt
+import joblib
 import numpy as np
 import pandas as pd
 from sklearn.impute import SimpleImputer
@@ -11,13 +17,19 @@ from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 from xgboost import XGBRegressor
 
+# Support both direct script execution and imports from main.py / notebook
+try:
+    from config import FINAL_DATASET_PATH, RESULTS_DIR
+except ImportError:
+    from src.config import FINAL_DATASET_PATH, RESULTS_DIR
+
 
 # Paths
 BASE_DIR = Path(__file__).resolve().parent.parent
-RESULTS_DIR = BASE_DIR / "results"
-DATA_PATH = RESULTS_DIR / "final_dataset.csv"
 OUTPUT_DIR = RESULTS_DIR / "model_outputs"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+MODEL_PATH = OUTPUT_DIR / "xgb_model.joblib"
 
 
 # Load data
@@ -77,7 +89,7 @@ R^2  : {r2:.4f}
 
 def save_plot(output_dir: Path, y_test: pd.Series, y_pred: np.ndarray) -> None:
     """Save actual vs predicted scatter plot."""
-    plt.figure(figsize=(7,7))
+    plt.figure(figsize=(7, 7))
     plt.scatter(y_test, y_pred, alpha=0.25)
 
     min_val = float(min(y_test.min(), y_pred.min()))
@@ -92,10 +104,16 @@ def save_plot(output_dir: Path, y_test: pd.Series, y_pred: np.ndarray) -> None:
     plt.close()
 
 
+def save_model(output_path: Path, model: Pipeline) -> None:
+    """Save trained model to disk."""
+    joblib.dump(model, output_path)
+    print(f"Saved trained model to: {output_path}")
+
+
 # Main
 def main() -> None:
     print("Loading dataset...")
-    df = load_data(DATA_PATH)
+    df = load_data(FINAL_DATASET_PATH)
     print(f"Dataset loaded: {df.shape[0]:,} rows x {df.shape[1]} columns")
 
     print("Preparing features...")
@@ -126,7 +144,7 @@ def main() -> None:
                     colsample_bytree=0.8,
                     random_state=42,
                     n_jobs=-1,
-                    verbosity=1,
+                    verbosity=0,
                 ),
             ),
         ]
@@ -151,6 +169,7 @@ def main() -> None:
 
     save_metrics(OUTPUT_DIR, mae, rmse, r2)
     save_plot(OUTPUT_DIR, y_test, y_pred)
+    save_model(MODEL_PATH, model)
 
     print(f"Saved metrics to: {OUTPUT_DIR / 'xgb_metrics.txt'}")
     print(f"Saved plot to: {OUTPUT_DIR / 'xgb_actual_vs_predicted.png'}")
